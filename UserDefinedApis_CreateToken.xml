@@ -1,0 +1,120 @@
+<DMSScript options="304" xmlns="http://www.skyline.be/automation">
+  <Name>UserDefinedApis_CreateToken</Name>
+  <Description>
+  </Description>
+  <Type>Automation</Type>
+  <Author>SKYLINE2\ThomasGH</Author>
+  <CheckSets>FALSE</CheckSets>
+  <Folder>
+  </Folder>
+  <Protocols>
+  </Protocols>
+  <Memory>
+  </Memory>
+  <Parameters>
+  </Parameters>
+  <Script>
+    <Exe id="2" type="csharp">
+      <Value><![CDATA[using System;
+using Skyline.DataMiner.Automation;
+using Skyline.DataMiner.Net.Apps.UserDefinableApis;
+using Skyline.DataMiner.Net.ManagerStore;
+
+namespace UDAPIS_CreateApiToken
+{
+    /// <summary>
+    /// Simple script to create an API token.
+    /// </summary>
+    public class Script
+    {
+        private Engine _engine;
+        private UserDefinableApiHelper _apiHelper;
+
+        public void Run(Engine engine)
+        {
+            _engine = engine;
+            _apiHelper = new UserDefinableApiHelper(_engine.SendSLNetMessages);
+
+            try
+            {
+                InnerRun();
+            }
+            catch (ScriptAbortException e)
+            {
+                _engine.GenerateInformation(e.ToString());
+                throw;
+            }
+            catch (Exception e)
+            {
+                _engine.GenerateInformation(e.ToString());
+            }
+        }
+
+        private void InnerRun()
+        {
+            // Request the input data
+            var builder = GetBuilder();
+            builder.Append("Enter a name for the token:");
+            builder.AppendTextBox("tokenName");
+            builder.AppendButton("nextButton", "Next");
+
+            var uiResult = _engine.ShowUI(builder);
+
+            // Store the response
+            var tokenName = uiResult.GetString("tokenName");
+
+            // Create API token
+            var secret = ApiTokenSecretGenerator.GenerateSecret();
+            var apiToken = new ApiToken(tokenName) { Secret = secret };
+
+            // Create the token
+            try
+            {
+                apiToken = _apiHelper.ApiTokens.Create(apiToken);
+            }
+            catch (CrudFailedException e)
+            {
+                ShowMessageUi($"A CRUD error occurred during API token creation. You may have provided invalid data.: {Environment.NewLine}{e.TraceData}");
+                return;
+            }
+            catch (Exception e)
+            {
+                ShowMessageUi($"Exception occurred during API token creation: {e}");
+                return;
+            }
+
+            // Show secret to the user
+            builder = GetBuilder();
+            builder.Append($"API token has been created with name '{tokenName}' and ID '{apiToken.ID.Id}'.");
+            builder.Append("Make sure to copy and store the token below:");
+            builder.AppendBlock(new UIBlockDefinition
+            {
+                Type = UIBlockType.TextBox,
+                DestVar = "secret",
+                InitialValue = secret,
+                Row = 1,
+                Column = 3
+            });
+            builder.AppendButton("ok", "Ok");
+            _engine.ShowUI(builder);
+        }
+
+        private void ShowMessageUi(string message)
+        {
+            var builder = GetBuilder();
+            builder.Append(message);
+            builder.AppendButton("ok", "Ok");
+            _engine.ShowUI(builder);
+        }
+
+        private UIBuilder GetBuilder()
+        {
+            return new UIBuilder { Title = "User defined API creator" };
+        }
+    }
+}]]></Value>
+      <Message>
+      </Message>
+    </Exe>
+  </Script>
+</DMSScript>

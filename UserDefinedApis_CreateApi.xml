@@ -1,0 +1,154 @@
+<DMSScript options="304" xmlns="http://www.skyline.be/automation">
+  <Name>UserDefinedApis_CreateApi</Name>
+  <Description>
+  </Description>
+  <Type>Automation</Type>
+  <Author>SKYLINE2\ThomasGH</Author>
+  <CheckSets>FALSE</CheckSets>
+  <Folder>
+  </Folder>
+  <Protocols>
+  </Protocols>
+  <Memory>
+  </Memory>
+  <Parameters>
+  </Parameters>
+  <Script>
+    <Exe id="2" type="csharp">
+      <Value><![CDATA[using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+using Skyline.DataMiner.Automation;
+using Skyline.DataMiner.Net.Apps.UserDefinableApis;
+using Skyline.DataMiner.Net.Apps.UserDefinableApis.Actions;
+using Skyline.DataMiner.Net.ManagerStore;
+using Skyline.DataMiner.Net.Messages;
+
+namespace UDAPIS_CreateApi
+{
+    /// <summary>
+    /// Simple script to create an API definition linked to a given script.
+    /// </summary>
+    public class Script
+    {
+        private Engine _engine;
+        private UserDefinableApiHelper _apiHelper;
+
+        public void Run(Engine engine)
+        {
+            _engine = engine;
+            _apiHelper = new UserDefinableApiHelper(_engine.SendSLNetMessages);
+
+            try
+            {
+                InnerRun();
+            }
+            catch (ScriptAbortException e)
+            {
+                _engine.GenerateInformation(e.ToString());
+                throw;
+            }
+            catch (Exception e)
+            {
+                _engine.GenerateInformation(e.ToString());
+            }
+        }
+
+        private void InnerRun()
+        {
+            // Request the input data
+            var allTokens = GetAllTokens();
+            var builder = GetBuilder();
+            builder.Append("Select an API token:");
+            builder.AppendDropDown("token", allTokens.Select(one => $"{one.Name} ({one.ID.Id})").ToArray());
+            builder.Append("Select an API script:");
+            builder.AppendDropDown("script", GetAllScriptNames());
+            builder.Append("Enter the URL route (e.g. 'encoder/status'):");
+            builder.AppendTextBox("route");
+            builder.AppendButton("nextButton", "Next");
+
+            var uiResult = _engine.ShowUI(builder);
+
+            // Store the response
+            var scriptName = uiResult.GetString("script");
+            var hasEntryPoint = HasScriptApiEntryPoint(scriptName);
+            var route = uiResult.GetString("route");
+            var tokenInput = uiResult.GetString("token");
+            var token = allTokens.First(one => tokenInput.Contains(one.ID.Id.ToString()));
+
+            // Create API definition
+            var actionType = hasEntryPoint ? ActionType.AutomationScript : ActionType.AutomationScriptNoEntryPoint;
+            var actionMeta = hasEntryPoint
+                ? (IActionMeta) new AutomationScriptActionMeta() { ScriptName = scriptName }
+                : new AutomationScriptNoEntryPointActionMeta() { ScriptName = scriptName };
+
+            var definition = new ApiDefinition()
+            {
+                Route = route,
+                ActionType = actionType,
+                ActionMeta = actionMeta,
+                SecuritySettings = new SecuritySettings()
+                {
+                    AllowedTokens = { token.ID }
+                }
+            };
+
+            // Save the definition
+            try
+            {
+                _apiHelper.ApiDefinitions.Create(definition);
+            }
+            catch (CrudFailedException e)
+            {
+                ShowMessageUi($"A CRUD error occurred during API definition creation. You may have provided invalid data.: {Environment.NewLine}{e.TraceData}");
+                return;
+            }
+            catch (Exception e)
+            {
+                ShowMessageUi($"Exception occurred during API definition creation: {e}");
+                return;
+            }
+            
+            ShowMessageUi($"API has been created for route '{route}' linked to the script with name '{scriptName}'.");
+        }
+
+        private void ShowMessageUi(string message)
+        {
+            var builder = GetBuilder();
+            builder.Append(message);
+            builder.AppendButton("ok", "Ok");
+            _engine.ShowUI(builder);
+        }
+
+        private UIBuilder GetBuilder()
+        {
+            return new UIBuilder { Title = "User defined API creator" };
+        }
+
+        private List<ApiToken> GetAllTokens()
+        {
+            return _apiHelper.ApiTokens.ReadAll();
+        }
+
+        private string[] GetAllScriptNames()
+        {
+            var message = new GetInfoMessage() { Type = InfoType.Scripts };
+            var response = _engine.SendSLNetSingleResponseMessage(message) as GetScriptsResponseMessage;
+            return response?.Scripts ?? Array.Empty<string>();
+        }
+
+        private bool HasScriptApiEntryPoint(string scriptName)
+        {
+            var message = new GetScriptInfoMessage(scriptName);
+            var response = _engine.SendSLNetSingleResponseMessage(message) as GetScriptInfoResponseMessage;
+            var contents = response?.Exes.FirstOrDefault(one => one.PreCompile == false)?.Value ?? string.Empty;
+            return contents.Contains("[AutomationEntryPoint(AutomationEntryPointType.Types.OnApiTrigger)]");
+        }
+    }
+}]]></Value>
+      <Message>
+      </Message>
+    </Exe>
+  </Script>
+</DMSScript>
